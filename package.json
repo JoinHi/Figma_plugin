@@ -1,0 +1,17 @@
+{
+  "name": "figma-ai-flutter-exporter",
+  "version": "0.1.0",
+  "private": true,
+  "description": "Figma plugin that exports the selected design node as LLM-friendly JSON, preview image, and image assets for Flutter layout generation.",
+  "scripts": {
+    "build": "tsc -p tsconfig.json && node scripts/copy-ui.mjs",
+    "check": "tsc -p tsconfig.json --noEmit",
+    "export-service": "node scripts/export-service.mjs",
+    "start-export-service": "node scripts/service-control.mjs start",
+    "stop-export-service": "node scripts/service-control.mjs stop",
+    "validate-export": "node scripts/validate-export.mjs"
+  },
+  "devDependencies": {
+    "typescript": "^5.5.4"
+  }
+}

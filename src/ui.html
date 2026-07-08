@@ -1,0 +1,596 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>AI Flutter Design Exporter</title>
+  <style>
+    :root {
+      color-scheme: light dark;
+      --bg: var(--figma-color-bg, #ffffff);
+      --text: var(--figma-color-text, #1f1f1f);
+      --muted: var(--figma-color-text-secondary, #6b7280);
+      --border: var(--figma-color-border, #d9d9d9);
+      --field: var(--figma-color-bg-secondary, #f6f7f8);
+      --brand: var(--figma-color-bg-brand, #0d99ff);
+      --brand-text: var(--figma-color-text-onbrand, #ffffff);
+      --danger: var(--figma-color-text-danger, #c4381c);
+      --success: #16833a;
+    }
+
+    * {
+      box-sizing: border-box;
+    }
+
+    body {
+      margin: 0;
+      background: var(--bg);
+      color: var(--text);
+      font: 12px/1.45 Inter, ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+    }
+
+    main {
+      display: flex;
+      min-height: 100vh;
+      flex-direction: column;
+      gap: 14px;
+      padding: 16px;
+    }
+
+    header {
+      display: grid;
+      gap: 4px;
+    }
+
+    h1 {
+      margin: 0;
+      font-size: 15px;
+      font-weight: 650;
+      letter-spacing: 0;
+    }
+
+    p {
+      margin: 0;
+      color: var(--muted);
+    }
+
+    label {
+      display: grid;
+      gap: 6px;
+      font-weight: 600;
+    }
+
+    input {
+      width: 100%;
+      height: 32px;
+      border: 1px solid var(--border);
+      border-radius: 6px;
+      background: var(--field);
+      color: var(--text);
+      padding: 0 10px;
+      font: inherit;
+      outline: none;
+    }
+
+    input:focus {
+      border-color: var(--brand);
+      box-shadow: 0 0 0 2px color-mix(in srgb, var(--brand) 22%, transparent);
+    }
+
+    button {
+      display: inline-flex;
+      width: 100%;
+      height: 36px;
+      align-items: center;
+      justify-content: center;
+      border: 0;
+      border-radius: 6px;
+      background: var(--brand);
+      color: var(--brand-text);
+      cursor: pointer;
+      font: inherit;
+      font-weight: 650;
+    }
+
+    button:disabled {
+      cursor: default;
+      opacity: 0.62;
+    }
+
+    .status {
+      min-height: 54px;
+      border: 1px solid var(--border);
+      border-radius: 8px;
+      padding: 10px;
+      background: var(--field);
+      color: var(--muted);
+      word-break: break-word;
+    }
+
+    .status[data-tone="error"] {
+      color: var(--danger);
+    }
+
+    .status[data-tone="success"] {
+      color: var(--success);
+    }
+
+    .progress {
+      display: none;
+      gap: 6px;
+    }
+
+    .progress[data-visible="true"] {
+      display: grid;
+    }
+
+    .progress-header {
+      display: flex;
+      justify-content: space-between;
+      gap: 8px;
+      color: var(--muted);
+    }
+
+    .progress-label {
+      overflow: hidden;
+      text-overflow: ellipsis;
+      white-space: nowrap;
+    }
+
+    .progress-track {
+      height: 8px;
+      overflow: hidden;
+      border-radius: 999px;
+      background: var(--field);
+      border: 1px solid var(--border);
+    }
+
+    .progress-bar {
+      width: 0%;
+      height: 100%;
+      background: var(--brand);
+      transition: width 160ms ease;
+    }
+
+    .summary {
+      display: none;
+      gap: 8px;
+      border-top: 1px solid var(--border);
+      padding-top: 12px;
+      color: var(--muted);
+    }
+
+    .summary[data-visible="true"] {
+      display: grid;
+    }
+
+    .summary strong {
+      color: var(--text);
+    }
+
+  </style>
+</head>
+<body>
+  <main>
+    <header>
+      <h1>AI Flutter Design Exporter</h1>
+      <p>导出当前选中节点的 JSON、整体效果图和图片素材。</p>
+    </header>
+
+    <label>
+      导出文件夹名称
+      <input id="folderName" value="figma-export" maxlength="80" autocomplete="off">
+    </label>
+
+    <button id="exportButton" type="button">导出当前选区</button>
+
+    <div id="status" class="status" data-tone="info">准备就绪。请选择一个节点后点击导出。</div>
+
+    <section id="progress" class="progress" aria-live="polite">
+      <div class="progress-header">
+        <span id="progressLabel" class="progress-label">准备中</span>
+        <span id="progressCount">0 / 0</span>
+      </div>
+      <div class="progress-track">
+        <div id="progressBar" class="progress-bar"></div>
+      </div>
+    </section>
+
+    <section id="summary" class="summary" aria-live="polite">
+      <div><strong id="summaryTitle">导出完成</strong></div>
+      <div id="summaryBody"></div>
+    </section>
+  </main>
+
+  <script>
+    const folderNameInput = document.getElementById("folderName");
+    const exportButton = document.getElementById("exportButton");
+    const statusBox = document.getElementById("status");
+    const progressBox = document.getElementById("progress");
+    const progressLabel = document.getElementById("progressLabel");
+    const progressCount = document.getElementById("progressCount");
+    const progressBar = document.getElementById("progressBar");
+    const summaryBox = document.getElementById("summary");
+    const summaryTitle = document.getElementById("summaryTitle");
+    const summaryBody = document.getElementById("summaryBody");
+    const encoder = new TextEncoder();
+    const decoder = new TextDecoder();
+    const exportServiceUrl = "http://localhost:43119/export";
+
+    exportButton.addEventListener("click", async () => {
+      const folderName = sanitizeFolderName(folderNameInput.value || "figma-export");
+      folderNameInput.value = folderName;
+      setSummary(false);
+      resetProgress();
+      setBusy(true);
+      setStatus("正在准备导出，结果会写入本地插件文件夹。", "info");
+
+      parent.postMessage({
+        pluginMessage: {
+          type: "export-request",
+          folderName
+        }
+      }, "*");
+    });
+
+    window.onmessage = async (event) => {
+      const message = event.data && event.data.pluginMessage;
+
+      if (!message || !message.type) {
+        return;
+      }
+
+      if (message.type === "status") {
+        setStatus(message.message, message.tone || "info");
+        return;
+      }
+
+      if (message.type === "progress") {
+        updateProgress(message);
+        return;
+      }
+
+      if (message.type === "export-error") {
+        setBusy(false);
+        setStatus(message.message, "error");
+        return;
+      }
+
+      if (message.type === "export-ready") {
+        await savePackage(message.folderName, message.files || [], message.summary, message.previewComposition);
+      }
+    };
+
+    async function savePackage(folderName, files, summary, previewComposition) {
+      try {
+        const filesToWrite = files.slice();
+        let previewPatch = null;
+
+        if (previewComposition) {
+          setStatus("正在合成多选整体效果图...", "info");
+
+          try {
+            filesToWrite.push(await composePreviewFile(previewComposition));
+            previewPatch = {
+              path: previewComposition.path || "preview.png",
+              status: "generated",
+              format: "png",
+              scale: Number(previewComposition.scale || 1),
+              canvas: previewComposition.canvas,
+              warnings: previewComposition.warnings || []
+            };
+            if (summary) {
+              summary.previewStatus = "generated";
+              summary.warningCount = (previewComposition.warnings || []).length;
+            }
+          } catch (error) {
+            const reason = errorMessage(error);
+            setStatus(`预览图生成失败，将继续写入 JSON 和素材：${reason}`, "info");
+            const warnings = [
+              ...(previewComposition.warnings || []),
+              { reason }
+            ];
+            previewPatch = {
+              path: null,
+              status: "failed",
+              reason,
+              warnings
+            };
+            if (summary) {
+              summary.previewStatus = "failed";
+              summary.warningCount = warnings.length;
+              summary.fileCount = Math.max(0, Number(summary.fileCount || 0) - 1);
+            }
+          }
+        }
+
+        if (previewPatch) {
+          patchDesignPreview(filesToWrite, previewPatch);
+        }
+
+        setStatus("正在通过本地服务写入文件夹...", "info");
+        const result = await writeFilesToExportService(folderName, filesToWrite);
+        setStatus("已写入本地文件夹。", "success");
+        showSummary(summary, `已导出到 ${result.exportDir}。`);
+      } catch (error) {
+        setStatus(`写入失败：${errorMessage(error)}`, "error");
+      } finally {
+        setBusy(false);
+      }
+    }
+
+    async function composePreviewFile(composition) {
+      const scale = Number(composition.scale || 1);
+      const width = Math.max(1, Math.ceil(Number(composition.canvas && composition.canvas.width) * scale));
+      const height = Math.max(1, Math.ceil(Number(composition.canvas && composition.canvas.height) * scale));
+      const canvas = document.createElement("canvas");
+      canvas.width = width;
+      canvas.height = height;
+
+      const context = canvas.getContext("2d");
+
+      if (!context) {
+        throw new Error("当前环境无法创建 canvas，不能合成多选整体效果图。");
+      }
+
+      const parts = composition.parts || [];
+
+      for (let index = 0; index < parts.length; index += 1) {
+        const part = parts[index];
+        updateProgress({
+          phase: "compose-preview",
+          current: index + 1,
+          total: parts.length,
+          label: `正在合成预览图 ${index + 1}/${parts.length}`,
+          detail: part.nodeName || ""
+        });
+        const bytes = normalizeBytes(part.bytes);
+        const image = await loadImage(bytes, part.mimeType || "image/png");
+        context.drawImage(
+          image,
+          Math.round(Number(part.x || 0) * scale),
+          Math.round(Number(part.y || 0) * scale),
+          Math.max(1, Math.round(Number(part.width || image.width / scale) * scale)),
+          Math.max(1, Math.round(Number(part.height || image.height / scale) * scale))
+        );
+      }
+
+      const blob = await canvasToBlob(canvas, composition.mimeType || "image/png");
+      const bytes = new Uint8Array(await blob.arrayBuffer());
+
+      return {
+        path: composition.path || "preview.png",
+        mimeType: composition.mimeType || "image/png",
+        bytes,
+        kind: "preview"
+      };
+    }
+
+    function patchDesignPreview(files, preview) {
+      const designFile = files.find((file) => file.kind === "design-json" || file.path === "design.json");
+
+      if (!designFile) {
+        return;
+      }
+
+      try {
+        const design = JSON.parse(decoder.decode(normalizeBytes(designFile.bytes)));
+        design.preview = {
+          ...(design.preview || {}),
+          ...preview
+        };
+        designFile.bytes = encoder.encode(JSON.stringify(design, null, 2));
+      } catch (error) {
+        setStatus(`无法更新 design.json 中的预览状态，将继续写入原始 JSON：${errorMessage(error)}`, "info");
+      }
+    }
+
+    function loadImage(bytes, mimeType) {
+      return new Promise((resolve, reject) => {
+        const blob = new Blob([bytes], { type: mimeType });
+        const url = URL.createObjectURL(blob);
+        const image = new Image();
+
+        image.onload = () => {
+          URL.revokeObjectURL(url);
+          resolve(image);
+        };
+
+        image.onerror = () => {
+          URL.revokeObjectURL(url);
+          reject(new Error("无法加载多选预览图部件。"));
+        };
+
+        image.src = url;
+      });
+    }
+
+    function canvasToBlob(canvas, mimeType) {
+      return new Promise((resolve, reject) => {
+        canvas.toBlob((blob) => {
+          if (blob) {
+            resolve(blob);
+          } else {
+            reject(new Error("无法生成整体效果图。"));
+          }
+        }, mimeType);
+      });
+    }
+
+    async function writeFilesToExportService(folderName, files) {
+      updateProgress({
+        phase: "writing",
+        current: 0,
+        total: files.length,
+        label: `正在准备写入 ${files.length} 个文件`
+      });
+
+      const serviceFiles = [];
+
+      for (let index = 0; index < files.length; index += 1) {
+        const file = files[index];
+        updateProgress({
+          phase: "writing",
+          current: index + 1,
+          total: files.length,
+          label: `正在编码文件 ${index + 1}/${files.length}`,
+          detail: file.path
+        });
+        serviceFiles.push({
+          path: file.path,
+          mimeType: file.mimeType || "application/octet-stream",
+          kind: file.kind,
+          bytesBase64: bytesToBase64(normalizeBytes(file.bytes))
+        });
+        await yieldToUi();
+      }
+
+      const response = await fetch(exportServiceUrl, {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json"
+        },
+        body: JSON.stringify({
+          folderName,
+          files: serviceFiles
+        })
+      });
+
+      const result = await response.json().catch(() => null);
+
+      if (!response.ok || !result || result.ok !== true) {
+        const detail = result && result.error ? result.error : response.statusText;
+        throw new Error(`${detail}。请先双击 Start Figma Export Service.command，或在插件文件夹运行 npm run start-export-service`);
+      }
+
+      return result;
+    }
+
+    function updateProgress(message) {
+      const total = Number(message.total || 0);
+      const current = Math.max(0, Number(message.current || 0));
+      const percent = total > 0 ? Math.min(100, Math.round((current / total) * 100)) : 0;
+      const label = message.detail
+        ? `${message.label}：${message.detail}`
+        : message.label || "正在处理";
+
+      progressBox.dataset.visible = "true";
+      progressLabel.textContent = label;
+      progressCount.textContent = total > 0 ? `${current} / ${total}` : "";
+      progressBar.style.width = `${percent}%`;
+    }
+
+    function resetProgress() {
+      progressBox.dataset.visible = "false";
+      progressLabel.textContent = "准备中";
+      progressCount.textContent = "0 / 0";
+      progressBar.style.width = "0%";
+    }
+
+    function normalizeBytes(value) {
+      if (value instanceof Uint8Array) {
+        return value;
+      }
+
+      if (value instanceof ArrayBuffer) {
+        return new Uint8Array(value);
+      }
+
+      if (Array.isArray(value)) {
+        return new Uint8Array(value);
+      }
+
+      if (value && value.buffer instanceof ArrayBuffer) {
+        return new Uint8Array(value.buffer, value.byteOffset || 0, value.byteLength);
+      }
+
+      if (value && Array.isArray(value.data)) {
+        return new Uint8Array(value.data);
+      }
+
+      return encoder.encode(String(value || ""));
+    }
+
+    function bytesToBase64(bytes) {
+      let binary = "";
+      const chunkSize = 0x8000;
+
+      for (let index = 0; index < bytes.length; index += chunkSize) {
+        const chunk = bytes.subarray(index, index + chunkSize);
+        binary += String.fromCharCode.apply(null, Array.from(chunk));
+      }
+
+      return btoa(binary);
+    }
+
+    function sanitizeFolderName(value) {
+      const cleaned = value
+        .trim()
+        .replace(/[\\/:*?"<>|#%{}$!@+`=\r\n\t]+/g, "-")
+        .replace(/\s+/g, "-")
+        .replace(/-+/g, "-")
+        .replace(/^-|-$/g, "")
+        .slice(0, 80);
+
+      return cleaned && cleaned !== "." && cleaned !== ".." ? cleaned : "figma-export";
+    }
+
+    function setBusy(isBusy) {
+      exportButton.disabled = isBusy;
+      exportButton.textContent = isBusy ? "正在导出..." : "导出当前选区";
+    }
+
+    function setStatus(message, tone) {
+      statusBox.textContent = message;
+      statusBox.dataset.tone = tone || "info";
+    }
+
+    function showSummary(summary, detail) {
+      summaryTitle.textContent = "导出完成";
+      if (!summary) {
+        summaryBody.textContent = detail;
+        setSummary(true);
+        return;
+      }
+
+      const previewText = previewStatusText(summary.previewStatus);
+      const warningText = Number(summary.warningCount || 0) > 0
+        ? `，警告：${summary.warningCount} 条`
+        : "";
+
+      summaryBody.textContent = `${detail} 根节点：${summary.rootName}，节点数：${summary.nodeCount}，素材数：${summary.assetCount}，文件数：${summary.fileCount}，预览：${previewText}${warningText}。`;
+      setSummary(true);
+    }
+
+    function previewStatusText(status) {
+      if (status === "generated") {
+        return "已生成";
+      }
+
+      if (status === "skipped") {
+        return "已跳过";
+      }
+
+      if (status === "failed") {
+        return "失败但不影响 JSON/素材";
+      }
+
+      return "未知";
+    }
+
+    function setSummary(isVisible) {
+      summaryBox.dataset.visible = String(isVisible);
+    }
+
+    function errorMessage(error) {
+      return error && error.message ? error.message : String(error);
+    }
+
+    function yieldToUi() {
+      return new Promise((resolve) => {
+        setTimeout(resolve, 0);
+      });
+    }
+  </script>
+</body>
+</html>

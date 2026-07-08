@@ -1,0 +1,9 @@
+{
+  "name": "AI Flutter Design Exporter",
+  "id": "ai-flutter-design-exporter",
+  "api": "1.0.0",
+  "main": "dist/main.js",
+  "ui": "dist/ui.html",
+  "editorType": ["figma"],
+  "documentAccess": "dynamic-page"
+}
